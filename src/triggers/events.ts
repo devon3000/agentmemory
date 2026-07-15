@@ -8,6 +8,7 @@ import {
   getConsolidationCooldownMs,
   isConsolidationEnabled,
 } from "../config.js";
+import { computeInputFingerprint } from "../functions/input-fingerprint.js";
 import { logger } from "../logger.js";
 
 // Global marker recording when corpus consolidation last ran, used to debounce
@@ -114,7 +115,25 @@ export function registerEventTriggers(sdk: ISdk, kv: StateKV): void {
       );
       const compressed = observations.filter((o) => o.title);
       if (compressed.length > 0) {
-        fireVoid("mem::graph-extract", { observations: compressed });
+        // Sessions that stop repeatedly without new observations (e.g.
+        // heartbeat loops) would re-extract the identical set every time;
+        // skip when the fingerprint of the set is unchanged.
+        const fingerprint = computeInputFingerprint(compressed);
+        const prev = await kv
+          .get<{ fingerprint: string }>(KV.graphExtractState, data.sessionId)
+          .catch(() => null);
+        if (prev && prev.fingerprint === fingerprint) {
+          logger.info("Graph extraction skipped — input unchanged", {
+            sessionId: data.sessionId,
+            observationCount: compressed.length,
+          });
+        } else {
+          await kv.set(KV.graphExtractState, data.sessionId, {
+            fingerprint,
+            at: new Date().toISOString(),
+          });
+          fireVoid("mem::graph-extract", { observations: compressed });
+        }
       }
     } catch (err) {
       logger.warn("graph-extract trigger failed", {
