@@ -134,6 +134,10 @@ export interface SessionSummary {
   filesModified: string[];
   concepts: string[];
   observationCount: number;
+  // Fingerprint of the exact observation set this summary was built from;
+  // used by mem::summarize to skip re-runs with identical input. Absent on
+  // summaries written by older versions.
+  inputFingerprint?: string;
 }
 
 export type HookType =
@@ -224,6 +228,8 @@ export interface HealthSnapshot {
   memory: {
     heapUsed: number;
     heapTotal: number;
+    /** V8 heap ceiling (--max-old-space-size). Absent on snapshots persisted before it was collected. */
+    heapLimit?: number;
     rss: number;
     external: number;
   };
