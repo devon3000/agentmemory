@@ -169,7 +169,10 @@ export function registerReflectFunctions(
 ): void {
   sdk.registerFunction("mem::reflect", 
     async (data: { maxClusters?: number; project?: string }) => {
-      const maxClusters = Math.min(data?.maxClusters ?? 10, 20);
+      const envCap = process.env["AGENTMEMORY_REFLECT_MAX_CLUSTERS"];
+      const envCapN = envCap ? parseInt(envCap, 10) : undefined;
+      const defaultMax = Number.isFinite(envCapN) && envCapN! > 0 ? envCapN! : 10;
+      const maxClusters = Math.min(data?.maxClusters ?? defaultMax, 20);
       const maxInsightsPerCluster = 5;
       const maxTotal = 50;
       const maxItemsPerCluster = 50;

@@ -4,7 +4,25 @@ import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { logger } from "../logger.js";
 
-const MAX_CONTEXT_LENGTH = 4000;
+// Per-session timestamp of the last enrichment response that had content.
+// Used to implement AGENTMEMORY_INJECT_COOLDOWN_SECS: if the same session
+// received enrichment within the window, return empty immediately so we
+// don't pile injection tokens into every consecutive file tool call.
+const lastEnrichedMs = new Map<string, number>();
+
+function getCooldownMs(): number {
+  const raw = process.env["AGENTMEMORY_INJECT_COOLDOWN_SECS"];
+  if (!raw) return 0;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n * 1000 : 0;
+}
+
+function getMaxContextLength(): number {
+  const raw = process.env["AGENTMEMORY_INJECT_MAX_CHARS"];
+  if (!raw) return 2000;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 2000;
+}
 
 function escapeXml(s: string): string {
   return s
@@ -24,6 +42,14 @@ export function registerEnrichFunction(sdk: ISdk, kv: StateKV): void {
       toolName?: string;
       project?: string;
     }) => {
+      const cooldownMs = getCooldownMs();
+      if (cooldownMs > 0) {
+        const last = lastEnrichedMs.get(data.sessionId);
+        if (last !== undefined && Date.now() - last < cooldownMs) {
+          return { context: "", truncated: false };
+        }
+      }
+
       const project =
         typeof data.project === "string" && data.project.trim().length > 0
           ? data.project.trim()
@@ -120,9 +146,14 @@ export function registerEnrichFunction(sdk: ISdk, kv: StateKV): void {
 
       let context = parts.join("\n\n");
       let truncated = false;
-      if (context.length > MAX_CONTEXT_LENGTH) {
-        context = context.slice(0, MAX_CONTEXT_LENGTH);
+      const maxContextLength = getMaxContextLength();
+      if (context.length > maxContextLength) {
+        context = context.slice(0, maxContextLength);
         truncated = true;
+      }
+
+      if (cooldownMs > 0 && context) {
+        lastEnrichedMs.set(data.sessionId, Date.now());
       }
 
       logger.info("Enrichment completed", {

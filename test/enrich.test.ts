@@ -132,7 +132,7 @@ describe("Enrich Function", () => {
     expect(capturedQuery).toContain("handleError");
   });
 
-  it("truncates context at 4000 chars", async () => {
+  it("truncates context at the default 2000 chars", async () => {
     const longContext = "x".repeat(5000);
     sdk.overrideTrigger(
       "mem::file-context",
@@ -145,8 +145,31 @@ describe("Enrich Function", () => {
       files: ["src/big.ts"],
     })) as { context: string; truncated: boolean };
 
-    expect(result.context.length).toBe(4000);
+    expect(result.context.length).toBe(2000);
     expect(result.truncated).toBe(true);
+  });
+
+  it("honours AGENTMEMORY_INJECT_MAX_CHARS over the default", async () => {
+    const prev = process.env["AGENTMEMORY_INJECT_MAX_CHARS"];
+    process.env["AGENTMEMORY_INJECT_MAX_CHARS"] = "500";
+    try {
+      sdk.overrideTrigger(
+        "mem::file-context",
+        async () => ({ context: "x".repeat(5000) }),
+      );
+      sdk.overrideTrigger("mem::search", async () => ({ results: [] }));
+
+      const result = (await sdk.trigger("mem::enrich", {
+        sessionId: "ses_1",
+        files: ["src/big.ts"],
+      })) as { context: string; truncated: boolean };
+
+      expect(result.context.length).toBe(500);
+      expect(result.truncated).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env["AGENTMEMORY_INJECT_MAX_CHARS"];
+      else process.env["AGENTMEMORY_INJECT_MAX_CHARS"] = prev;
+    }
   });
 
   it("returns empty context when no data found", async () => {
