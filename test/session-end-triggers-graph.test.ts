@@ -98,9 +98,17 @@ describe("agentmemory status no longer depends on /export (#666)", () => {
 describe("event::session::stopped graph-extract dedup", () => {
   const events = readFileSync("src/triggers/events.ts", "utf-8");
 
+  // The handler dispatches void triggers through its local fireVoid helper,
+  // so match either that call or a raw sdk.trigger({ function_id }) form —
+  // the assertion is about ordering, not which spelling fires the trigger.
+  const GRAPH_EXTRACT_TRIGGER =
+    '(?:function_id:\\s*"mem::graph-extract"|fireVoid\\(\\s*"mem::graph-extract")';
+
   it("fingerprints the compressed set before triggering mem::graph-extract", () => {
     expect(events).toMatch(
-      /const fingerprint = computeInputFingerprint\(compressed\);[\s\S]*?function_id:\s*"mem::graph-extract"/,
+      new RegExp(
+        `const fingerprint = computeInputFingerprint\\(compressed\\);[\\s\\S]*?${GRAPH_EXTRACT_TRIGGER}`,
+      ),
     );
   });
 
@@ -112,7 +120,9 @@ describe("event::session::stopped graph-extract dedup", () => {
 
   it("persists the fingerprint under KV.graphExtractState before triggering", () => {
     expect(events).toMatch(
-      /kv\.set\(KV\.graphExtractState,\s*data\.sessionId,\s*\{\s*fingerprint,[\s\S]*?\}\);[\s\S]*?function_id:\s*"mem::graph-extract"/,
+      new RegExp(
+        `kv\\.set\\(KV\\.graphExtractState,\\s*data\\.sessionId,\\s*\\{\\s*fingerprint,[\\s\\S]*?\\}\\);[\\s\\S]*?${GRAPH_EXTRACT_TRIGGER}`,
+      ),
     );
   });
 });
